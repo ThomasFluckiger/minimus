@@ -9,20 +9,26 @@ import random
 import uuid
 import time
 from pathlib import Path
+import logging
 import vlc
 import magic
 import notify2
 import xdg
 import eyed3
 
-#First, some public global functions, path variables and the like
+#First, some public global functions, path variables, initialize the logger and the like
+logging.basicConfig(filename='minimus.log', level=logging.DEBUG)
 
 #spec says $XDG_DATA_HOME returned by function defaults to $HOME/.local/share
 _CACHE_PATH = os.path.join(xdg.xdg_data_home() ,  "minimus.cache")
-#print(_CACHE_PATH)
+_logline = "minimus cache_path: " + _CACHE_PATH
+logging.debug(_logline)
 
 #conf_dir = xdg.xdg_config_home() is path for the config file per xdg
 _CONFIG_PATH= os.path.join(xdg.xdg_config_home(),  "minimus.conf")
+_logline = "config_path: " + _CONFIG_PATH
+logging.debug(_logline)
+
 
 def load_config():
     """"
@@ -31,6 +37,8 @@ def load_config():
     the config file is a single line containing a single path for the
     location of the library of files.
     """
+    logging.info('Entered function: load_config()')
+
     #$XDG_CONFIG_HOME (if unset) is $HOME/.config
 
 
@@ -45,7 +53,7 @@ def load_config():
                 _random_salt = uuid.uuid4().hex
                 minimus_conf.writelines(_random_salt)
         except IOError:
-            print("unable to create new config file, this is fatal")
+            logging.error('unable to create new config file, this is fatal')
             sys.exit(0)
 
     try:
@@ -54,6 +62,8 @@ def load_config():
             _lib_path = full_config[0]
             _md5_salt = full_config[1]
     except IOError:
+        logging.error('IOERROR: unable to open config file for reading, this is fatal')
+
         print("IOError: Unable to read file")
         print("TODO: implement proper .toml config manager")
 
@@ -62,9 +72,9 @@ def load_config():
         #_music_path = Path(_lib_path)
         os.chdir(_music_path)
     except IOError:
-        print("can't open music path",  _music_path,"did you plug it in?")
+        logging.error('IOERROR: unable to open music path from config, attempting default ~/Music, verify path and permissions exist')
         _home = Path.home()
-        _music_path = os.path.join(_home, "/music")
+        _music_path = os.path.join(_home, "/Music")
         os.chdir(_music_path)
 
     return _lib_path,  _md5_salt
@@ -72,6 +82,8 @@ def load_config():
 def load_cache():
     """load the cache file using xdg paths or create new """
     _current_cache = {0 }
+    logging.info('Entered function: load_cache()')
+
     if not os.path.isfile(_CACHE_PATH):
         try:
             open(_CACHE_PATH, 'a').close()
@@ -85,10 +97,11 @@ def load_cache():
             plain_contents = minimus_cache.read()
 
             if not plain_contents:
-#                print("nothing in minimus cache")
+                logging.info('Played song cache is empty')
                 return {0 }
 
             if len(plain_contents) == 1:
+                logging.info('Played song cache has a single song, which breaks splitlines()')
                 _current_cache = plain_contents
                 return _current_cache
 
@@ -103,24 +116,25 @@ def load_cache():
                 print("loaded cache from file contains ", str(_cache_size), "songs" )
                 return _current_cache
     except IOError:
-        print("cache doesn't exist.")
+        logging.error('IOERROR: Played songs cache does not exist')
 
     try:
         with open(_CACHE_PATH,  'a+') as minimus_cache:
             return {0 }
     except IOError:
-        print("attempting to create cache failed:", _CACHE_PATH)
+        logging.error('IOERROR: attempting to create cache failed,  this is fatal')
         sys.exit(1)
 
 def append_cache(_chk_sum):
     """append file checksum to the minimus_cache file"""
-#    print("attempting to add _chk_sum: ", _chk_sum, "to cache at:", _CACHE_PATH)
+    _logline = "attempting to add _chk_sum: " + _chk_sum + "to cache at:" +  _CACHE_PATH
+    logging.debug(_logline)
     try:
         with open(_CACHE_PATH, 'a+') as minimus_cache:
             minimus_cache.write(_chk_sum)
             minimus_cache.write('\n')
     except IOError:
-        print("Unable to append to cache file, exiting")
+        logging.error("IOError exception: unable to append to cache file. minimus exiting")
         sys.exit(0)
 
 def close_app():
@@ -129,6 +143,8 @@ def close_app():
 
 def show_notification(header, body, note_type = 0):
     '''Show a notification, either using notify as default or not '''
+    logging.info('Entered function: show_notification()')
+
     if note_type == 0:
         note = notify2.Notification(header, body)
         note.show()
@@ -148,7 +164,7 @@ class Song():
 
     def add_tags(self):
         '''Add tags using the filename defined in init'''
-        #print("Adding to tags to self.filename", self.filename)
+        logging.info('Entered function in Song: add_tags(self)')
         taggy = eyed3.load(self.filename)
         sartist = taggy.tag.artist
         salbum = taggy.tag.album
@@ -159,6 +175,7 @@ class Song():
 
     def get_checksum(self,  _md5_salt):
         """add a checksum attribute to the song object and return the hash"""
+        logging.info('Entered function in Song: get_checksum(self,_md5_salt)')
 
         md5_hash = hashlib.md5()
         file = open(self.filename, "rb")
@@ -173,6 +190,8 @@ class Song():
 
     def get_full_path(self):
         '''return the filename associated with the song object'''
+        logging.info('Entered function in Song: get_full_path(self)')
+
         return self.filename
 
     def info(self):
@@ -198,6 +217,7 @@ class PlayListManager():
 
 
     def add_song(self, _filename):
+        logging.info('Entered function in PlayListManager: add_song(self, _filename)')
         '''take a file and import it to the songs list if it is a song'''
 
 #     to begin, hopefully the default path for most files with tags read by eyed3 using magic'''
@@ -238,6 +258,8 @@ class PlayListManager():
 
     def play_random(self):
         '''return and remove a random song object from the playlist to be played'''
+        logging.info('Entered function in PlayListManager: play_random(self)')
+
         songs_in_list = len(self.songs)
 #        print("playlist contains", songs_in_list, "songs.")
         if songs_in_list > 1:
@@ -250,6 +272,8 @@ class PlayListManager():
 
 
     def play_next(self):
+        logging.info('Entered function in PlayListManager: play_next(self)')
+
         '''pop the next song off the playlist add it to played songs
          ironically, this doesn't actually play it, and needs to be renamed
          It uses the new play function to reuse the code with shuffle option'''
@@ -266,6 +290,8 @@ class PlayListManager():
 
     def play(self, sobj):
         '''play a track from a song object'''
+        logging.info('Entered function in PlayListManager: play(self)')
+
         self.player.stop() #record scratch sound effect
 #       print("len self.songs:", len(self.songs))
         if len(self.songs) > 0: #as we hope there's another song
@@ -292,53 +318,59 @@ class PlayListManager():
 
     def current_notify(self):
         """display the curront song information using show_notification"""
+        logging.info('Entered function in PlayListManager: current_notify(self)')
+
         line2 = self.current_song.album + "\n" + self.current_song.title
         show_notification(self.current_song.artist,  line2)
 
     def mute_volume(self):
+        logging.info('Entered function in PlayListManager: mute_volume(self)')
+
         ''' toggle the player mute function'''
         vlc.libvlc_audio_toggle_mute(self.player)
 
     def play_pause(self):
-        ''' toggla pause with libvlc'''
+        """ toggle pause with libvlc"""
+        logging.info('Entered function in PlayListManager: play_pause(self)')
         vlc.libvlc_media_player_pause(self.player)
 
     def pause_media(self):
         '''toggle pause on player object directly'''
+        logging.info('Entered function in PlayListManager: pause_media(self)')
         self.player.pause()
 
     def resume_media(self):
         '''tell the player object to play'''
+        logging.info('Entered function in PlayListManager: resume_media(self)')
         self.player.play()
 
     def set_volume(self, volume):
         '''set the volume to a specified level no sanity checks'''
+        logging.info('Entered function in PlayListManager: set_volume(self)')
         vlc.libvlc_audio_set_volume(self.player,  volume)
 
     def get_volume(self):
         '''return the volume and show a notification'''
+        logging.info('Entered function in PlayListManager: get_volume(self)')
         vol_ = vlc.libvlc_audio_get_volume(self.player)
         show_notification("Volume", vol_)
         return vol_
 
-    def volume_up(self):
-        '''pump up the volume'''
-#        print("Volume Up")
+    def volume_up(self, prcnt = 10):
+        '''pump up the volume 10% by default'''
+        logging.info('Entered function in PlayListManager: volume_up(self,prcnt=10)')
         self.current_volume = vlc.libvlc_audio_get_volume(self.player)
-        self.current_volume = self.current_volume + 10
-
+        self.current_volume = self.current_volume + prcnt
         if self.current_volume >100:
             self.current_volume = 100
-
         vlc.libvlc_audio_set_volume(self.player,  self.current_volume)
         show_notification("Volume", str(self.current_volume))
 
-    def volume_down(self):
-        '''volume down'''
-#        print("Volume Down Pushed")
+    def volume_down(self,  prcnt = 10):
+        """turn the volume down 10% by default"""
+        logging.info('Entered function in PlayListManager: volume_down(self,prcnt=10)')
         self.current_volume = vlc.libvlc_audio_get_volume(self.player)
-        self.current_volume = self.current_volume - 10
-
+        self.current_volume = self.current_volume - prcnt
         if self.current_volume <0:
             self.current_volume = 0
         vlc.libvlc_audio_set_volume(self.player,  self.current_volume)
@@ -346,15 +378,15 @@ class PlayListManager():
 
     def playback_status(self):
         """ return the track length and current position"""
+        logging.info('Entered function in PlayListManager: playback_status(self)')
         track_length = vlc.libvlc_media_player_get_length(self.player)
         current_position = vlc.libvlc_media_player_get_position(self.player)
         return track_length, current_position
 
     def is_playing(self):
         '''returns current status of the media player'''
-        #print("Can you hear music playing?")
+        logging.info('Entered function in PlayListManager: is_playing(self)')
         play_status = vlc.libvlc_media_player_get_state(self.player)
-        #print("play_status =", play_status)
         return str(play_status)
 
 class MainWindow(tkinter.Frame):
@@ -370,8 +402,13 @@ class MainWindow(tkinter.Frame):
         self.pack()
 
     def on_checkbox(self):
-        '''checkbox callback'''
+        '''MainWindow checkbox callback'''
+        logging.info('Entered callback function in MainWindow: on_checkbox(self)')
+
         check_status = self.shuffle.get()
+        _logline = 'self.shuffle.get(): ' + check_status
+        logging.debug(_logline)
+
 #        if check_status == 0:
 #            print("Not shuffling")
 #        if check_status ==1:
@@ -381,6 +418,8 @@ class MainWindow(tkinter.Frame):
 
     def create_widgets(self):
         '''create the widgets in the window'''
+        logging.info('Entered function in MainWindow: create_widgets(self)')
+
         self.ok_button = tkinter.Button(self)
         self.ok_button["text"] = "Break Things"
         self.ok_button["command"] = self.on_ok_button
@@ -432,6 +471,8 @@ class MainWindow(tkinter.Frame):
 
     def update_label(self):
         '''upate various bits using .after to update using a GUI label to trigger'''
+        logging.info('Entered function in MainWindow: update_label(self)')
+
         play_status_ = self.play_list.is_playing()
         status_msg_ = ""
         if play_status_ == "State.Ended":
@@ -460,7 +501,8 @@ class MainWindow(tkinter.Frame):
 
     def on_ok_button(self):
         '''ok button callback'''
-#        print("OK Button Pressed")
+        logging.info('Entered callback function in MainWindow: on_ok_button(self)')
+
         show_notification("Stop!", "Please don't push this button again")
         self.play_list.play_next()
         self.play_list.current_notify()
@@ -468,7 +510,8 @@ class MainWindow(tkinter.Frame):
 
     def on_load_button(self):
         '''load button notify and callback'''
-#        print("Load Button Pressed")
+        logging.info('Entered callback function in MainWindow: on_load_button(self)')
+
         load_files = tkinter.filedialog.askdirectory()
 #        print(load_files)
 #      if the user selects dumb files, do nothing gracefully
@@ -490,7 +533,7 @@ class MainWindow(tkinter.Frame):
 
     def on_play_button(self):
         """play button callback notify is in play_next"""
-#        print("Just Push Play!")
+        logging.info('Entered callback function in MainWindow: on_play_button(self)')
 
         shuffle_status =  self.on_checkbox()
 #        print(shuffle_status)
@@ -502,27 +545,35 @@ class MainWindow(tkinter.Frame):
 
     def on_mute_button(self):
         '''mute button notify and callback'''
+        logging.info('Entered callback function in MainWindow: on_mute_button(self)')
+
         note = notify2.Notification("Mute", "Toggled")
         note.show()
         self.play_list.mute_volume()
 
     def on_play_pause(self):
         '''toggle notify and playback and pause callback'''
+        logging.info('Entered callback function in MainWindow: on_play_pause(self)')
+
         note = notify2.Notification("Playback", "Toggled")
         note.show()
         self.play_list.play_pause()
 
     def on_vol_up(self):
         '''vol up callback'''
+        logging.info('Entered callback function in MainWindow: on_vol_up(self)')
         self.play_list.volume_up()
 
     def on_vol_down(self):
         '''vol down callback'''
+        logging.info('Entered function: on_vol_down(self)')
+
         self.play_list.volume_down()
 
 
 def main():
     ''' The main function of the music player '''
+    logging.info('Entered function: main()')
     notify2.init('minimus')
     #the cache and config are currently still loaded in the minimus_window init and playlist...
     #'''It is a GUI so make an app window'''
