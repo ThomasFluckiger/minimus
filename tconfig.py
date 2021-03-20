@@ -3,15 +3,16 @@
 import os
 import sys
 import logging
+import uuid
 import xdg
 import toml
+
 
 class ConfigController():
     """ConfigController: for when you have more than a single line config
         requires: toml, xdg, os
-        
         takes a dict containing configuration and app_name as arguments.
-        it uses xdg paths for files, and if the file exists it loads the file instead. 
+        it uses xdg paths for files, and if the file exists it loads the file instead.
         calling set_config with a different dict replaces the file
         passing an empty dict on an existing file returns the proper config
     """
@@ -62,13 +63,18 @@ class ConfigController():
 
 def main():
     """the main function, to test the config manager"""
-    #config_path = os.path.join(xdg.xdg_config_home(),  "minimus.conf")
-
-    config_dict = {'path': 'media/music', 'salt': 'ababababababababa'}
     app_name = "maximus"
+    conf_stub = app_name + ".conf"
+    conf_path = os.path.join(xdg.xdg_config_home(),  conf_stub)
+    conf_salt = uuid.uuid4().hex
+    config_dict = {'path': conf_path, 'salt': conf_salt}
     the_config = ConfigController(app_name, config_dict)
+
+    print("The app_name is: " , app_name )
+    print("conf_path is: ", conf_path, "\n")
     print(the_config.get())
-    sys.exit()
+    sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
