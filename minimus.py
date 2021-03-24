@@ -14,56 +14,45 @@ import notify2
 import eyed3
 import tconfig
 import tcache
+from tutil import show_notification
+import tutil
 
 
-def close_app():
-    """exit to the system, no errors, no logs"""
-    sys.exit(0)
+def taggy_dict(_filename):
+    '''return a dict of tags returned by taggy'''
+    logging.info('Entered function taggy_dict: taggy_dict(_filename)')
+    taggy = eyed3.load(_filename)
+    sartist = taggy.tag.artist
+    salbum = taggy.tag.album
+    strack = taggy.tag.title
+    song_info = {'file': _filename, 'artist': sartist, 'album': salbum, 'track': strack}
+    print("Added a dict of tags: ",  song_info)
+    return song_info
 
-def show_notification(header, body, note_type = 0):
-    '''Show a notification, either using notify as default or not '''
-    logging.info('Entered function: show_notification()')
 
-    if note_type == 0:
-        note = notify2.Notification(header, body)
-        note.show()
-    elif note_type ==1:
-        print(str(header))
-        print(str(body))
-
-class Song():
-    """ a class to deal with song data for use by the playlistmanager"""
-    def __init__(self, fname):
-        self.filename = fname
-        self.artist = ""
-        self.album = ""
-        self.title = ""
-
-    def add_tags(self):
-        '''Add tags using the filename defined in init'''
-        logging.info('Entered function in Song: add_tags(self)')
-        taggy = eyed3.load(self.filename)
-        sartist = taggy.tag.artist
-        salbum = taggy.tag.album
-        strack = taggy.tag.title
-        self.artist = sartist
-        self.album = salbum
-        self.title = strack
-
-    def get_full_path(self):
-        '''return the filename associated with the song object'''
-        logging.info('Entered function in Song: get_full_path(self)')
-
-        return self.filename
-
-    def info(self):
-        '''print the info from the song'''
-        logging.info("Entered function in Song: info(self)")
-#        print("file:", self.filename, "\n")
-#        print("checksum", self.chksm, "\n")
-#        print("Artist:", self.artist, " Album: ",  self.album, "\n",  "Track: ",  self.title)
-        return self.artist,  self.album,  self.title
-
+#class MediaPlayer():
+#    def __init__(self):
+#        self.instance = vlc.Instance()
+#        self.player = self.instance.media_player_new()
+#        self.current_volume = vlc.libvlc_audio_get_volume(self.player)
+#    def playback(self, song_dict):
+#        """ play a file using libvlc"""
+#        _file = song_dict['file']
+#        self.player.stop()
+#        fresh = self._cache.update_cache(_file)
+#        if fresh:
+#            logging.info("Track is fresh, starting to play")
+##            print("This is where we actually do the dirty work")
+#            self.current_song = song_dict
+#            media = self.instance.media_new(_file)
+#            self.player.set_media(media)
+#            self.player.play()
+#            header = song_dict['artist']
+#            body = song_dict['album']  + "\n" + song_dict['track']
+#            show_notification(header, body, 0)
+#        else:
+#            show_notification("Skipping","You already heard that one", 0)
+#            self.play_random()
 
 
 class PlayListManager():
@@ -71,7 +60,6 @@ class PlayListManager():
     def __init__(self, config, the_cache):
         self.current_song = None
         self._cache = the_cache
-        self.songs = []
         self.instance = vlc.Instance()
         self.player = self.instance.media_player_new()
         self.current_volume = vlc.libvlc_audio_get_volume(self.player)
@@ -79,6 +67,7 @@ class PlayListManager():
         self._config_dict = config.get()
         self.md5_salt = self._config_dict['salt']
         self.lib_path = self._config_dict['path']
+        self.playlist = []
         print(self._cache)
         try:
             os.chdir(self.lib_path)
@@ -94,19 +83,17 @@ class PlayListManager():
 #     to begin, hopefully the default path for most files with tags read by eyed3 using magic'''
         _magic_tag = magic.from_file(_filename)
         if "Audio file with ID3" in _magic_tag:
-            this_song = Song(_filename)
-            this_song.add_tags()
-            self.songs.append(this_song)
-            return self.songs
+            song_dict = taggy_dict(_filename)
+            self.playlist.append(song_dict)
+            return self.playlist
 
 #      unfortunately magic is imperfect and some mpeg audio with tags go unrecognized this way
         _mime = magic.from_file(_filename, mime=True)
 #        print(_mime)
         if _mime == "audio/mpeg":
-            this_song = Song(_filename)
-            this_song.add_tags()
-            self.songs.append(this_song)
-            return self.songs
+            _song_dict = taggy_dict(_filename)
+            self.playlist.append(_song_dict)
+            return self.playlist
 
         if _mime =="image/jpeg":
             print("ignoring album art")
@@ -115,14 +102,15 @@ class PlayListManager():
             print("An Empty file? delete this crap!")
             return 0
 
-#apparently some mp3s return application octet-streams as mime this is a test stub
+#some mp3s return octet-stream as mime, to avoid taggy breaking, return unknown track dict
         if _mime ==  "application/octet-stream":
             print("Yay, an unidentifiable octet-stream that may or may not be audio")
             print("trying to add minus tags")
             print("_magic_tag: ",  _magic_tag)
-            this_song = Song(_filename)
-            self.songs.append(this_song)
-            return self.songs
+            unknown_dict = {'file': _filename, 'artist':'Unknown Artist',
+                                        'album':'Unknown Album', 'track': 'Unknown Song'}
+            self.playlist.append(unknown_dict)
+            return self.playlist
 
         print(_filename," has unrecognized mimetype,", _mime,", skipping")
         return 0
@@ -131,12 +119,11 @@ class PlayListManager():
         '''return and remove a random song object from the playlist to be played'''
         logging.info('Entered function in PlayListManager: play_random(self)')
 
-        songs_in_list = len(self.songs)
-#        print("playlist contains", songs_in_list, "songs.")
-        if songs_in_list > 1:
-            song_pick = random.randint(0, songs_in_list-1)
-#            print("I chose track #", song_pick)
-            pick = self.songs.pop(song_pick)
+        songs_in_list = len(self.playlist)
+        print("playlist contains", songs_in_list, "songs.")
+        if songs_in_list > 0:
+            song_pick = random.randint(0, songs_in_list - 1)
+            pick = self.playlist.pop(song_pick)
             self.play(pick)
         else:
             show_notification("Nothing to play", "random function has nothing to do")
@@ -148,31 +135,32 @@ class PlayListManager():
          It uses the new play function to reuse the code with shuffle option'''
         logging.info('Entered function in PlayListManager: play_next(self)')
 
-        songs_remaining = len(self.songs) -1
+        songs_remaining = len(self.playlist)
         show_notification("songs remaining: ", str(songs_remaining), 1)
 
         if songs_remaining > 0:
-            trak = self.songs.pop(0)
+            trak = self.playlist.pop(0)
             self.play(trak)
         else:
             show_notification("Nothing to play", "nothing to do")
 
 
-    def play(self, sobj):
+    def play(self, song_dict):
         '''play a track from a song object'''
         logging.info('Entered function in PlayListManager: play(self)')
-        _file_name = sobj.filename
+        print("The beginning of the play function...")
+        _file = song_dict['file']
         self.player.stop()
-        fresh = self._cache.update_cache(_file_name)
+        fresh = self._cache.update_cache(_file)
         if fresh:
-            print("This is where we actually do the dirty work")
-            self.current_song = sobj
-            file_to_play = sobj.filename
-            media = self.instance.media_new(file_to_play)
+            logging.info("Track is fresh, starting to play")
+#            print("This is where we actually do the dirty work")
+            self.current_song = song_dict
+            media = self.instance.media_new(_file)
             self.player.set_media(media)
             self.player.play()
-            header = sobj.artist
-            body = sobj.album + "\n"+sobj.title
+            header = song_dict['artist']
+            body = song_dict['album']  + "\n" + song_dict['track']
             show_notification(header, body, 0)
         else:
             show_notification("Skipping","You already heard that one", 0)
@@ -182,8 +170,8 @@ class PlayListManager():
         """display the curront song information using show_notification"""
         logging.info('Entered function in PlayListManager: current_notify(self)')
 
-        line2 = self.current_song.album + "\n" + self.current_song.title
-        show_notification(self.current_song.artist,  line2)
+        line2 = self.current_song['album'] + "\n" + self.current_song['track']
+        show_notification(self.current_song['artist'],  line2)
 
     def mute_volume(self):
         """ toggle the player mute function """
@@ -252,25 +240,29 @@ class PlayListManager():
 
     def get_track_info(self):
         """returns _artist, _album, and _track for use in updating the GUI"""
-        _artist,  _album, _track = self.current_song.info()
-        return _artist,  _album,  _track
+#  should probably remove this now that I don't have to deal with song objects
+        return self.current_song['artist'], self.current_song['album'],  self.current_song['track']
+
+    def print_list(self):
+        """test function to aid removal of self.songs and the song class in favor of media dicts"""
+        print(self.playlist)
 
 class MainWindow(tkinter.Frame):
     '''The MainWindow class for a simple tkinter GUI with only a single frame'''
     def __init__(self, the_cache, master=None):
         super().__init__(master)
         self.master = master
-#        self.current_cache ={0 }
         self.shuffle = tkinter.IntVar()
         self.app_name = "minimus"
         self.default_dict = {}
-#        self.default_dict['path']= '/media/merlin/threepos/music'
+#        self.default_dict['path']= '/media/music'
 #        self.default_dict['salt']= uuid.uuid4().hex
+#       trying to preserve my cache makes testing defaults irksome.
         self.configuration_dict = tconfig.ConfigController(self.app_name,  self.default_dict)
-        #this may be different from self.default_dict if the
-        #configuration exists, this is intentional if slightly dumb way to not nuke salts
+        #self.configuration_dict will be different from self.default_dict if the
+        #configuration akready exists, this is intentional if slightly dumb way to not nuke salts
         #and also allows empty dicts to be passed if the app_name.config exists already
-        print(self.configuration_dict)
+        logging.debug(str(self.configuration_dict))
         self.play_list = PlayListManager(self.configuration_dict, the_cache)
         self.create_widgets()
         self.pack()
@@ -298,48 +290,56 @@ class MainWindow(tkinter.Frame):
         self.ok_button["text"] = "Break Things"
         self.ok_button["command"] = self.on_ok_button
         self.ok_button.pack(side="left")
-#        self.ok_button.grid(column=1, row=0)
+#        self.ok_button.grid(column=0, row=0)
 
 
         self.load_button = tkinter.Button(self)
         self.load_button["text"] = "Load"
         self.load_button["command"] = self.on_load_button
         self.load_button.pack(side = "top")
-#        self.load_button.pack(column=2, row=0)
+#        self.load_button.pack(column=4, row=5)
 
         self.play_button = tkinter.Button(self)
         self.play_button["text"] = "Play Next"
         self.play_button["command"] = self.on_play_button
         self.play_button.pack(side = "right")
+#        self.label_artist.pack(column=5, row=0)
 
         self.mute_button = tkinter.Button(self)
         self.mute_button["text"] = "Mute"
         self.mute_button["command"] = self.on_mute_button
         self.mute_button.pack(side = "right")
+#        self.label_artist.pack(column=5, row=0)
 
         self.pause_button = tkinter.Button(self)
         self.pause_button["text"] = "Play/Pause"
         self.pause_button["command"] = self.on_play_pause
         self.pause_button.pack(side = "right")
+#        self.label_artist.pack(column=5, row=0)
 
         self.volume_up_button = tkinter.Button(self)
         self.volume_up_button["text"]="Vol +"
         self.volume_up_button["command"] = self.on_vol_up
         self.volume_up_button.pack(side = "top")
+#        self.label_artist.pack(column=5, row=0)
 
         self.volume_down_button = tkinter.Button(self)
         self.volume_down_button["text"]="Vol -"
         self.volume_down_button["command"] = self.on_vol_down
         self.volume_down_button.pack(side = "top")
+#        self.label_artist.pack(column=5, row=0)
 
         self.quit_button = tkinter.Button(self)
         self.quit_button["text"]="Quit"
-        self.quit_button["command"]= close_app
+        self.quit_button["command"]= tutil.close_app
         self.quit_button.pack(side = "right")
+#        self.label_artist.pack(column=5, row=0)
+
 
         self.shuffle_radio = tkinter.Checkbutton(self, text="Shuffle", variable = self.shuffle)
         self.shuffle_radio["command"]= self.on_checkbox
         self.shuffle_radio.pack(side = "right")
+#        self.label_artist.pack(column=5, row=0)
 
 
         self.label_artist = tkinter.Label(self, text="Artist")
@@ -371,11 +371,9 @@ class MainWindow(tkinter.Frame):
         _track = ""
 
         if play_status_ == "State.Ended":
-#            print("Playback Stopped")
             status_msg_ = "Ended"
             logging.info("Current Song Ended")
             self.on_play_button()
-
 
         if  play_status_ == "State.Playing":
             traklen,  playpos = self.play_list.playback_status()
@@ -403,7 +401,6 @@ class MainWindow(tkinter.Frame):
     def on_ok_button(self):
         '''ok button callback'''
         logging.info('Entered callback function in MainWindow: on_ok_button(self)')
-
         show_notification("Stop!", "Please don't push this button again")
         self.play_list.play_next()
         self.play_list.current_notify()
@@ -412,24 +409,22 @@ class MainWindow(tkinter.Frame):
     def on_load_button(self):
         '''load button notify and callback'''
         logging.info('Entered callback function in MainWindow: on_load_button(self)')
-        load_files = tkinter.filedialog.askdirectory()
-#        print(load_files)
-#      if the user selects dumb files, do nothing gracefully
-        #and count files actually added
-        cnt = 0
-        if len(load_files) > 0:
-            os.chdir(load_files)
-    #        self.status = "Loading"
-            dfiles = os.listdir(load_files)
-            pth = os.getcwd()
-            for fname in dfiles:
-                full_path_ = os.path.join(pth,  fname)
-                add_success = self.play_list.add_song(full_path_)
-                if add_success:
-                    cnt = cnt + 1
-        nt_ = "Added "+str(cnt)+" songs successfully"
-        show_notification("Playlist", nt_)
-        return cnt
+#        load_files = tkinter.filedialog.askdirectory()
+
+        load_files = tutil.read_dir(os.getcwd())
+        print(load_files)
+#      if the user selects dumb files, it should do nothing gracefully
+# and so we know read_dir is too generic a name...
+        #lets count files actually added
+        file_count = len(load_files)
+        print(file_count)
+        pth = os.getcwd()
+        for fname in load_files:
+            full_path = os.path.join(pth,  fname)
+            self.play_list.add_song(full_path)
+        msg = "Added "+str(file_count)+" songs successfully"
+        show_notification("Playlist", msg)
+        return file_count
 
     def on_play_button(self):
         """play button callback notify is in play_next"""
